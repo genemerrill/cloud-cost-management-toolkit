@@ -19,7 +19,7 @@ config {
   type: "operations",
   dependencies: [
     dataform.projectConfig.vars.log_table_name,
-    "create_process_log"
+    "create_helper_tables"
   ]
 }
 

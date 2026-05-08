@@ -14,17 +14,16 @@
 # limitations under the License.
 */
 
--- This file declares your source view, to access the raw billing export with a partition filter always enabled.
+-- This file declares your source view, to access the raw billing export
 -- Dataform now knows this view exists and other files can ${ref()} it.
 config {
+  disabled: true,
   type: "view",
   tags: ["createViews"],
   name: "azure_costs_export"
-  //name: dataform.projectConfig.vars.source_view_name,
 }
 
 SELECT
     *
 FROM `${dataform.projectConfig.vars.raw_billing_project}.${dataform.projectConfig.vars.raw_azure_dataset}.${dataform.projectConfig.vars.raw_azure_table_name}`
 -- TODO: update hardcoded value to relative date calc (rolling 5 quarters)
---WHERE TIMESTAMP_TRUNC(_PARTITIONTIME, DAY) >= '2024-08-01'

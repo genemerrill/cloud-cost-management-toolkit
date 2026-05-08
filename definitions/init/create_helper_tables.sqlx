@@ -1,0 +1,220 @@
+/*
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+*/
+
+-- By using type: "operations" and "CREATE TABLE IF NOT EXISTS", 
+-- Dataform will create it only if it's missing, but to NEVER drop or
+-- recreate it on subsequent runs.
+config {
+  type: "operations",
+  tags: ["init"]
+}
+
+--TODO: CREATE DATASET IF NOT EXISTS or this operation will fail the first time run
+
+CREATE TABLE IF NOT EXISTS 
+${ref(dataform.projectConfig.vars.log_table_name)}
+(
+  process_id INT64, -- no parallel processing support, batch only
+  process_name STRING,
+  process_start_time TIMESTAMP,
+  process_end_time TIMESTAMP, -- only set to NON NULL if job completed successfully, this column is populated by the final step.
+  process_msg STRING,
+  source_table STRING, -- source table for raw gcp export partitioned by _PARTITIONTIME
+  dest_table STRING, -- dest table for repartitioned and flattened gcp export
+  records_added INT64,
+  max_source_date DATE, -- used as the "bookmark" for incremental loads to the base table
+  usage_dates_processed ARRAY<DATE>, -- used to track which usage_start_time partitioned to process for downstream aggregates
+  max_dest_date DATE
+);
+
+CREATE TABLE IF NOT EXISTS ${ref("geo_region_mapping")} 
+(
+  gcp_region STRING OPTIONS(description="The technical region code used in Google Cloud Platform (e.g., us-central1)."),
+  geo_name STRING OPTIONS(description="The human-readable location name properly formatted for mapping."),
+  looker_studio_geo_type STRING OPTIONS(description="The specific field type required by Looker Studio to render maps correctly (Country vs Subdivision).")
+)
+AS
+SELECT
+  gcp_region,
+  geo_name,
+  looker_studio_geo_type
+FROM UNNEST([
+  STRUCT<gcp_region STRING, geo_name STRING, looker_studio_geo_type STRING>
+  ('africa-south1', 'South Africa', 'Country'),
+  ('asia-east1', 'Taiwan', 'Country'),
+  ('asia-east2', 'Hong Kong', 'Country'),
+  ('asia-northeast1', 'Japan', 'Country'),
+  ('asia-northeast2', 'Japan', 'Country'),
+  ('asia-northeast3', 'South Korea', 'Country'),
+  ('asia-south1', 'India', 'Country'),
+  ('asia-south2', 'India', 'Country'),
+  ('asia-southeast1', 'Singapore', 'Country'),
+  ('asia-southeast2', 'Indonesia', 'Country'),
+  ('australia-southeast1', 'Australia', 'Country'),
+  ('australia-southeast2', 'Australia', 'Country'),
+  ('europe-central2', 'Poland', 'Country'),
+  ('europe-north1', 'Finland', 'Country'),
+  ('europe-southwest1', 'Spain', 'Country'),
+  ('europe-west1', 'Belgium', 'Country'),
+  ('europe-west2', 'United Kingdom', 'Country'),
+  ('europe-west3', 'Germany', 'Country'),
+  ('europe-west4', 'Netherlands', 'Country'),
+  ('europe-west6', 'Switzerland', 'Country'),
+  ('europe-west8', 'Italy', 'Country'),
+  ('europe-west9', 'France', 'Country'),
+  ('me-central1', 'Qatar', 'Country'),
+  ('me-central2', 'Saudi Arabia', 'Country'),
+  ('me-west1', 'Israel', 'Country'),
+  ('northamerica-northeast1', 'Canada', 'Country'),
+  ('northamerica-northeast2', 'Canada', 'Country'),
+  ('southamerica-east1', 'Brazil', 'Country'),
+  ('southamerica-west1', 'Chile', 'Country'),
+  ('us-central1', 'Iowa', 'Country subdivision (1st level)'),
+  ('us-east1', 'South Carolina', 'Country subdivision (1st level)'),
+  ('us-east4', 'Virginia', 'Country subdivision (1st level)'),
+  ('us-east5', 'Ohio', 'Country subdivision (1st level)'),
+  ('us-south1', 'Texas', 'Country subdivision (1st level)'),
+  ('us-west1', 'Oregon', 'Country subdivision (1st level)'),
+  ('us-west2', 'California', 'Country subdivision (1st level)'),
+  ('us-west3', 'Utah', 'Country subdivision (1st level)'),
+  ('us-west4', 'Nevada', 'Country subdivision (1st level)')
+]);
+
+
+
+CREATE TABLE IF NOT EXISTS 
+${ref(dataform.projectConfig.vars.log_table_name)}
+(
+  process_id INT64, -- no parallel processing support, batch only
+  process_name STRING,
+  process_start_time TIMESTAMP,
+  process_end_time TIMESTAMP, -- only set to NON NULL if job completed successfully, this column is populated by the final step.
+  process_msg STRING,
+  source_table STRING, -- source table for raw gcp export partitioned by _PARTITIONTIME
+  dest_table STRING, -- dest table for repartitioned and flattened gcp export
+  records_added INT64,
+  max_source_date DATE, -- used as the "bookmark" for incremental loads to the base table
+  usage_dates_processed ARRAY<DATE>, -- used to track which usage_start_time partitioned to process for downstream aggregates
+  max_dest_date DATE
+);
+
+CREATE TABLE IF NOT EXISTS ${ref("geo_region_mapping")} 
+(
+  gcp_region STRING OPTIONS(description="The technical region code used in Google Cloud Platform (e.g., us-central1)."),
+  geo_name STRING OPTIONS(description="The human-readable location name properly formatted for mapping."),
+  looker_studio_geo_type STRING OPTIONS(description="The specific field type required by Looker Studio to render maps correctly (Country vs Subdivision).")
+)
+AS
+SELECT
+  gcp_region,
+  geo_name,
+  looker_studio_geo_type
+FROM UNNEST([
+  STRUCT<gcp_region STRING, geo_name STRING, looker_studio_geo_type STRING>
+  ('africa-south1', 'South Africa', 'Country'),
+  ('asia-east1', 'Taiwan', 'Country'),
+  ('asia-east2', 'Hong Kong', 'Country'),
+  ('asia-northeast1', 'Japan', 'Country'),
+  ('asia-northeast2', 'Japan', 'Country'),
+  ('asia-northeast3', 'South Korea', 'Country'),
+  ('asia-south1', 'India', 'Country'),
+  ('asia-south2', 'India', 'Country'),
+  ('asia-southeast1', 'Singapore', 'Country'),
+  ('asia-southeast2', 'Indonesia', 'Country'),
+  ('australia-southeast1', 'Australia', 'Country'),
+  ('australia-southeast2', 'Australia', 'Country'),
+  ('europe-central2', 'Poland', 'Country'),
+  ('europe-north1', 'Finland', 'Country'),
+  ('europe-southwest1', 'Spain', 'Country'),
+  ('europe-west1', 'Belgium', 'Country'),
+  ('europe-west2', 'United Kingdom', 'Country'),
+  ('europe-west3', 'Germany', 'Country'),
+  ('europe-west4', 'Netherlands', 'Country'),
+  ('europe-west6', 'Switzerland', 'Country'),
+  ('europe-west8', 'Italy', 'Country'),
+  ('europe-west9', 'France', 'Country'),
+  ('me-central1', 'Qatar', 'Country'),
+  ('me-central2', 'Saudi Arabia', 'Country'),
+  ('me-west1', 'Israel', 'Country'),
+  ('northamerica-northeast1', 'Canada', 'Country'),
+  ('northamerica-northeast2', 'Canada', 'Country'),
+  ('southamerica-east1', 'Brazil', 'Country'),
+  ('southamerica-west1', 'Chile', 'Country'),
+  ('us-central1', 'Iowa', 'Country subdivision (1st level)'),
+  ('us-east1', 'South Carolina', 'Country subdivision (1st level)'),
+  ('us-east4', 'Virginia', 'Country subdivision (1st level)'),
+  ('us-east5', 'Ohio', 'Country subdivision (1st level)'),
+  ('us-south1', 'Texas', 'Country subdivision (1st level)'),
+  ('us-west1', 'Oregon', 'Country subdivision (1st level)'),
+  ('us-west2', 'California', 'Country subdivision (1st level)'),
+  ('us-west3', 'Utah', 'Country subdivision (1st level)'),
+  ('us-west4', 'Nevada', 'Country subdivision (1st level)')
+]);
+
+
+CREATE TABLE IF NOT EXISTS ${ref("azure_product_hierarchy_rules")} 
+(
+  rule_id STRING OPTIONS(description="Unique ID for the rule"),
+  hier_level INT64 OPTIONS(description="Hierarchy level (1 to n)"),
+  priority INT64 OPTIONS(description="Evaluation order, lower means higher priority"),
+  output_value STRING OPTIONS(description="The category value to assign if the rule matches"),
+  parent_l2 STRING OPTIONS(description="Required L2 value for this rule to be considered (for L3+)"),
+  parent_l3 STRING OPTIONS(description="Required L3 value (for L4+)"),
+  parent_l4 STRING,
+  parent_l5 STRING,
+  parent_l6 STRING,
+  parent_l7 STRING,
+  conditions_json STRING OPTIONS(description="JSON string representing the matching conditions"),
+  description STRING OPTIONS(description="Optional description of the rule")
+)
+AS
+SELECT * FROM UNNEST([
+  STRUCT<rule_id STRING, hier_level INT64, priority INT64, output_value STRING, parent_l2 STRING, parent_l3 STRING, parent_l4 STRING, parent_l5 STRING, parent_l6 STRING, parent_l7 STRING, conditions_json STRING, description STRING>
+  -- LVL 2 Examples
+  ('L2_001', 2, 10, 'Marketplace', NULL, NULL, NULL, NULL, NULL, NULL, '{"field": "publisher_type", "op": "=", "values": ["MARKETPLACE"]}', 'Marketplace'),
+  ('L2_002', 2, 20, 'Commitments & Capacity', NULL, NULL, NULL, NULL, NULL, NULL, '{"field": "is_commitment", "op": "IS_TRUE"}', 'Commitments'),
+  ('L2_003', 2, 30, 'AI', NULL, NULL, NULL, NULL, NULL, NULL, '''{"op": "OR", "clauses": [
+      {"field": "consumed_service", "op": "IN", "values": ["MICROSOFT.COGNITIVESERVICES", "MICROSOFT.MACHINELEARNINGSERVICES", "MICROSOFT.BOTSERVICE"]},
+      {"field": "meter_category", "op": "LIKE", "values": ["%COGNITIVE SERVICES%", "%OPENAI%", "%MACHINE LEARNING%", "% AI %", "AI %", "% AI"]},
+      {"field": "meter_sub_category", "op": "LIKE", "values": ["%NC%SERIES%", "%ND%SERIES%", "%NV%SERIES%", "%GPU%"]}
+    ]}''', 'AI Services & Hardware'),
+  ('L2_004', 2, 40, 'Compute', NULL, NULL, NULL, NULL, NULL, NULL, '''{"op": "OR", "clauses": [
+      {"op": "AND", "clauses": [
+        {"field": "consumed_service", "op": "=", "values": ["MICROSOFT.COMPUTE"]},
+        {"field": "meter_category", "op": "IN", "values": ["VIRTUAL MACHINES", "AZURE VIRTUAL MACHINES", "VIRTUAL MACHINES LICENSES"]},
+        {"field": "meter_sub_category", "op": "NOT LIKE", "values": ["%NC%SERIES%", "%ND%SERIES%", "%NV%SERIES%", "%GPU%"]}
+      ]},
+      {"field": "consumed_service", "op": "=", "values": ["MICROSOFT.AVS"]},
+      {"field": "meter_category", "op": "LIKE", "values": ["%VMWARE%"]}
+    ]}''', 'Compute VMs & VMware'),
+  -- ... all other L2 rules ...
+  ('L2_999', 2, 9990, 'Others', NULL, NULL, NULL, NULL, NULL, NULL, '{"op": "ALWAYS_TRUE"}', 'L2 Default'),
+
+  -- LVL 3 Examples
+  ('L3_COMP_001', 3, 10, 'Memory Optimized', 'Compute', NULL, NULL, NULL, NULL, NULL, '{"field": "meter_sub_category", "op": "LIKE", "values": ["%EB%SERIES%", "%MB%SERIES%"]}', 'Compute - Memory Optimized'),
+  ('L3_COMP_002', 3, 20, 'General Purpose', 'Compute', NULL, NULL, NULL, NULL, NULL, '{"field": "meter_sub_category", "op": "LIKE", "values": ["%DADSV5%", "%DASV5%", "%DDSV5%", "%DSV5%", "%DAV4%", "%DV4%", "%D SERIES%", "%AV2%SERIES%"]}', 'Compute - General Purpose'),
+  -- ... all other L3 rules for Compute ...
+  ('L3_COMP_999', 3, 9990, 'General Purpose', 'Compute', NULL, NULL, NULL, NULL, NULL, '{"op": "ALWAYS_TRUE"}', 'Compute - L3 Default'),
+
+  ('L3_AI_001', 3, 10, 'GPU VM', 'AI', NULL, NULL, NULL, NULL, NULL, '{"field": "meter_sub_category", "op": "LIKE", "values": ["%NC%SERIES%", "%ND%SERIES%", "%NV%SERIES%"]}', 'AI - GPU VM'),
+  -- ... all other L3 rules for AI ...
+  ('L3_AI_999', 3, 9990, 'Other AI', 'AI', NULL, NULL, NULL, NULL, NULL, '{"op": "ALWAYS_TRUE"}', 'AI - L3 Default')
+
+  -- ... You would need to add ALL the default rules for levels 2 through n here ...
+])
+;
+
+    
