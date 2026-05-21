@@ -16,7 +16,7 @@
 
 -- This script builds the helper table for projectlabels
 config {
-  //disabled: true,
+  disabled: dataform.projectConfig.vars.enable_labels_and_tags !== "true",
   type: "incremental",
   tags: ["updateTagsLabels"],
   name: dataform.projectConfig.vars.project_labels_table_name,

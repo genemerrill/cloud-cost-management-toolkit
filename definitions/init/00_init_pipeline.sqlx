@@ -26,6 +26,7 @@ config {
 -- Use a BigQuery scripting block to manage pipeline state.
 BEGIN
   DECLARE pending_processes INT64;
+  DECLARE stale_processes INT64;
 
   -- Step 1: Check for any active processes from previous runs.
   SET pending_processes = (
@@ -33,14 +34,28 @@ BEGIN
     FROM ${ref(dataform.projectConfig.vars.log_table_name)}
     WHERE process_end_time IS NULL
   );
+
+  -- Step 1.1: Check if any active process is older than 4 hours (deemed stale)
+  SET stale_processes = (
+    SELECT COUNT(*)
+    FROM ${ref(dataform.projectConfig.vars.log_table_name)}
+    WHERE process_end_time IS NULL
+      AND process_start_time < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 4 HOUR)
+  );
     
-  -- Step 2: If an active process is found, fail the run immediately.
-  -- The RAISE statement is not caught by an EXCEPTION block, so it will
-  -- correctly halt the Dataform execution.
-  IF pending_processes > 0 THEN
-    RAISE USING MESSAGE = 'An active process was found from a previous run. Halting execution.';
+  -- Step 2: Self-heal stale runs, or block if a true active run is current
+  IF pending_processes > 0 AND stale_processes = 0 THEN
+    RAISE USING MESSAGE = 'An active billing ingestion run is currently in progress (started < 4 hrs ago). Ingestion halted to prevent collision.';
   ELSE
-    -- Step 3: No active process found, so we can safely start a new run by
+    -- Self-heal stale locks
+    IF stale_processes > 0 THEN
+      UPDATE ${ref(dataform.projectConfig.vars.log_table_name)}
+      SET process_end_time = CURRENT_TIMESTAMP(),
+          process_msg = 'Run aborted: Terminated by subsequent pipeline execution due to timeout.'
+      WHERE process_end_time IS NULL;
+    END IF;
+
+    -- Step 3: No active process found (or stale locks cleared), start a new run by
     -- inserting a single new row for this entire pipeline execution.
     INSERT INTO ${ref(dataform.projectConfig.vars.log_table_name)} (
       process_id,

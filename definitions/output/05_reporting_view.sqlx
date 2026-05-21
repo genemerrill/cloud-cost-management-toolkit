@@ -1,0 +1,30 @@
+config {
+  type: "view",
+  name: "vw_gcp_billing_export_daily_summary",
+  description: "Durable analysis view for reporting tools, Looker Studio, and FinOps analytics. Integrates pre-pivoted labels, tags, and mapping dimensions with corrected financial aggregates.",
+  columns: {
+    usage_start_date: "Partitioning column. Must always be used as an active filter in all query/dashboard connections.",
+    true_net_cost: "True out-of-pocket costs representing gross cost plus all credited adjustments.",
+    total_net_cost: "Standard FinOps net cost representing gross cost plus all credits except short-term marketing promotions."
+  }
+}
+
+SELECT
+  daily.*,
+  
+  -- True Net Cost: Gross Cost + All Credits (negative)
+  CASE 
+    WHEN service_description != 'Invoice' THEN (total_cost + total_credits)
+    ELSE 0 
+  END AS true_net_cost,
+
+  -- Custom Net Cost (Excluding Promotions): Gross Cost + All Credits - Promotion Credits
+  CASE 
+    WHEN service_description != 'Invoice' THEN (total_cost + total_credits - total_promotion)
+    ELSE 0 
+  END AS total_net_cost
+
+FROM
+  ${ref(dataform.projectConfig.vars.enable_labels_and_tags === "true" 
+    ? dataform.projectConfig.vars.daily_left_joined_table_name 
+    : dataform.projectConfig.vars.daily_summary_table_name)} AS daily
