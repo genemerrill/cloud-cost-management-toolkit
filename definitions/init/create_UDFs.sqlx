@@ -23,26 +23,33 @@ CREATE OR REPLACE FUNCTION ${dataform.projectConfig.vars.udfs_dataset}.EvaluateR
   conditions_json STRING)
 RETURNS BOOL
 LANGUAGE js AS """
+  function getRawValue(data, field) {
+    if (!data || !field) return undefined;
+    const lowerField = field.toLowerCase();
+    for (const key in data) {
+      if (key.toLowerCase() === lowerField) {
+        return data[key];
+      }
+    }
+    return undefined;
+  }
+
   function evaluateCondition(clause, data) {
     const field = clause.field;
-    const op = clause.op;
+    const op = clause.op ? clause.op.toUpperCase() : '';
     const values = clause.values;
 
-    if (clause.op === 'ALWAYS_TRUE') return true;
+    if (op === 'ALWAYS_TRUE') return true;
 
-    if (!data || data[field] === undefined) {
-       // Handle cases where data or field is missing
-       return op === 'IS_NULL';
-    }
-    const rawValue = data[field];
+    const rawValue = getRawValue(data, field);
 
-    if (rawValue === null) {
+    if (rawValue === null || rawValue === undefined) {
        if (op === 'IS_NULL') return true;
        if (op === 'IS_NOT_NULL') return false;
-       return false; // Other ops on NULL are false
+       return false; // Other ops on NULL/undefined are false
     }
-    let actualValue = typeof rawValue === 'string' ? rawValue.toUpperCase() : rawValue;
 
+    let actualValue = typeof rawValue === 'string' ? rawValue.toUpperCase() : rawValue;
     const upperValues = Array.isArray(values) ? values.map(v => typeof v === 'string' ? v.toUpperCase() : v) : [];
 
     switch (op) {
@@ -56,27 +63,27 @@ LANGUAGE js AS """
       case '!=':
         return actualValue !== upperValues[0];
       case 'LIKE':
-        return upperValues.some(val => actualValue.includes(val));
+        return upperValues.some(val => typeof actualValue === 'string' && actualValue.includes(val));
       case 'NOT LIKE':
-        return !upperValues.some(val => actualValue.includes(val));
+        return !upperValues.some(val => typeof actualValue === 'string' && actualValue.includes(val));
       case 'REGEX_CONTAINS':
         return upperValues.some(val => {
           try {
             const regex = new RegExp(val, 'i');
-            return regex.test(data[field]);
+            return typeof rawValue === 'string' && regex.test(rawValue);
           } catch (e) { return false; }
         });
       case 'NOT REGEX_CONTAINS':
          return !upperValues.some(val => {
           try {
             const regex = new RegExp(val, 'i');
-            return regex.test(data[field]);
+            return typeof rawValue === 'string' && regex.test(rawValue);
           } catch (e) { return false; }
         });
-      case 'IS_TRUE': // For is_commitment
-        return actualValue === 1;
+      case 'IS_TRUE':
+        return rawValue === 1 || rawValue === true;
       case 'IS_FALSE':
-        return actualValue === 0;
+        return rawValue === 0 || rawValue === false;
       case 'IS_NULL':
          return false; // Handled above
       case 'IS_NOT_NULL':
@@ -88,10 +95,13 @@ LANGUAGE js AS """
 
   function evaluateClause(clause, data) {
     if (!clause || !clause.op) return false; // Basic validation
-    if (clause.op === 'AND') {
+    const op = clause.op.toUpperCase();
+    if (op === 'AND') {
       return Array.isArray(clause.clauses) && clause.clauses.every(c => evaluateClause(c, data));
-    } else if (clause.op === 'OR') {
+    } else if (op === 'OR') {
       return Array.isArray(clause.clauses) && clause.clauses.some(c => evaluateClause(c, data));
+    } else if (op === 'NOT') {
+      return Array.isArray(clause.clauses) && clause.clauses.length > 0 && !evaluateClause(clause.clauses[0], data);
     } else {
       return evaluateCondition(clause, data);
     }
@@ -102,8 +112,6 @@ LANGUAGE js AS """
     const conditions = JSON.parse(conditions_json);
     return evaluateClause(conditions, data);
   } catch (e) {
-    // Optional: Log error, but UDFs can't have side effects like console.log visible outside.
-    // Consider returning a specific error code if you need to debug from SQL.
     return false; // Error in JSON or evaluation
   }
 """;
