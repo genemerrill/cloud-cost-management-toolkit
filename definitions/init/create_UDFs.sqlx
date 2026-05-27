@@ -25,8 +25,22 @@ RETURNS BOOL
 LANGUAGE js AS """
   function getRawValue(data, field) {
     if (!data || !field) return undefined;
-    const lowerField = field.toLowerCase();
-    return data[lowerField]; // Direct indexing (casing-safe due to lowercase SQL struct keys, bypasses host-object non-enumerability)
+    switch (field.toLowerCase()) {
+      case 'meter_category': return data.meter_category;
+      case 'meter_sub_category': return data.meter_sub_category;
+      case 'meter_name': return data.meter_name;
+      case 'meter_region': return data.meter_region;
+      case 'consumed_service': return data.consumed_service;
+      case 'publisher_name': return data.publisher_name;
+      case 'tag__deployment': return data.tag__deployment;
+      case 'plan_name': return data.plan_name;
+      case 'unit_of_measure': return data.unit_of_measure;
+      case 'publisher_type': return data.publisher_type;
+      case 'pricing_model': return data.pricing_model;
+      case 'term': return data.term;
+      case 'is_commitment': return data.is_commitment;
+      default: return undefined;
+    }
   }
 
   function evaluateCondition(clause, data) {
