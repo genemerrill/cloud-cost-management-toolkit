@@ -1,0 +1,49 @@
+defaultProject: dinhgcplab
+defaultDataset: ccm_toolkit
+defaultAssertionDataset: ccm_toolkit
+dataformCoreVersion: 3.0.52
+
+defaultLocation: "US" #"us-central1"
+
+# You can access these variables in any .sqlx file using:
+# ${dataform.projectConfig.vars.variable_name}
+vars:
+  # --- General Settings ---
+  log_table_name: "billing_process"
+  default_start_date: "2024-08-01" # Set a safe default for full refreshes # TODO: set to rolling 5 quarters with JS
+
+  # --- Step 0: Initialize Pipeline ---
+  init_process_name: "GCP Billing Export daily ingest"
+  source_view_name: "src_vw_gcp_billing_export_filtered"
+  udfs_dataset: "ccm_toolkit" # should match defaultDataset in most cases
+  
+  # --- Step 1: Build Repartitioned Billing Export Table---
+  # Raw physical source table for billing & recommendations exports
+  #dinhgcplab.dinhgcplab_standard_billing.gcp_billing_export_v1_018741_7510E6_1B4296
+  raw_billing_table_name: "gcp_billing_export_v1_018741_7510E6_1B4296"
+  raw_billing_dataset: "dinhgcplab_standard_billing"
+  raw_billing_project: "dinhgcplab"
+  recommendations_table_name: "recommendations_export"
+  
+  raw_azure_table_name: "sample_cost"
+  raw_azure_dataset: "Azure"
+  azure_advisor_table_name: "azure_advisor_aug"
+  # Destination table for the staging table for GCP billing data, repartitioned on usage_start_date
+  dest_table_name: "usage_partitioned_billing_export"
+  # Other settings
+  billing_source_partition_column: "PARTITIONTIME"
+  billing_source_timezone: "America/Los_Angeles"
+  
+  # --- Step 2: Build Daily Aggregate Summary Table ---
+  daily_summary_table_name: "gcp_billing_export_daily_summary"
+
+  # --- Step 3: Helper Tables for Flattening Array Data ---
+  labels_table_name: "gcp_billing_labels"
+  labels_process_name: "Update GCP billing labels table"
+  project_labels_table_name: "gcp_billing_project_labels"
+  system_labels_table_name: "gcp_billing_system_labels"
+  tags_table_name: "gcp_billing_tags"
+
+  # --- Step 4: Table with Joined Tags and Labels ---
+  daily_left_joined_table_name: "gcp_billing_daily_left_joined"
+

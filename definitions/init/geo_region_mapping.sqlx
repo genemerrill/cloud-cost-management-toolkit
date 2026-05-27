@@ -53,4 +53,4 @@ FROM UNNEST([
   ('us-west2', 'California', 'Country subdivision (1st level)'),
   ('us-west3', 'Utah', 'Country subdivision (1st level)'),
   ('us-west4', 'Nevada', 'Country subdivision (1st level)')
-]);
+])
