@@ -58,36 +58,33 @@ AggregatedSKUs AS (
 ),
 
 DataForUDF AS (
-  SELECT STRUCT(
-    meter_category AS meter_category,
-    meter_sub_category AS meter_sub_category,
-    meter_name AS meter_name,
-    meter_region AS meter_region,
-    consumed_service AS consumed_service,
-    publisher_name AS publisher_name,
-    tag__deployment AS tag__deployment,
-    plan_name AS plan_name,
-    unit_of_measure AS unit_of_measure,
-    publisher_type AS publisher_type,
-    pricing_model AS pricing_model,
-    term AS term,
-    is_commitment AS is_commitment
-  ) AS row_data, *
+  SELECT 
+    ROW_NUMBER() OVER () AS row_id,
+    STRUCT(
+      meter_category AS meter_category,
+      meter_sub_category AS meter_sub_category,
+      meter_name AS meter_name,
+      meter_region AS meter_region,
+      consumed_service AS consumed_service,
+      publisher_name AS publisher_name,
+      tag__deployment AS tag__deployment,
+      plan_name AS plan_name,
+      unit_of_measure AS unit_of_measure,
+      publisher_type AS publisher_type,
+      pricing_model AS pricing_model,
+      term AS term,
+      is_commitment AS is_commitment
+    ) AS row_data, *
   FROM AggregatedSKUs
 ),
 
 -- L2 Classification
 L2_RuleMatches AS (
   SELECT
-    d.meter_category, d.meter_sub_category, d.meter_name, d.meter_region,
-    d.consumed_service, d.publisher_name, d.tag__deployment, d.plan_name,
-    d.unit_of_measure, d.pricing_model, d.term,
+    d.row_id,
     r.output_value AS matched_l2_value,
     ROW_NUMBER() OVER (
-      PARTITION BY
-        d.meter_category, d.meter_sub_category, d.meter_name, d.meter_region,
-        d.consumed_service, d.publisher_name, d.tag__deployment, d.plan_name,
-        d.unit_of_measure, d.pricing_model, d.term
+      PARTITION BY d.row_id
       ORDER BY r.priority
     ) as rn
   FROM DataForUDF d
@@ -96,9 +93,7 @@ L2_RuleMatches AS (
 ),
 L2_BestMatch AS (
   SELECT
-    meter_category, meter_sub_category, meter_name, meter_region,
-    consumed_service, publisher_name, tag__deployment, plan_name,
-    unit_of_measure, pricing_model, term,
+    row_id,
     matched_l2_value
   FROM L2_RuleMatches WHERE rn = 1
 ),
@@ -108,25 +103,16 @@ L2_Classification AS (
     'All' AS csp_product_lvl1,
     COALESCE(bm.matched_l2_value, 'Others') AS csp_product_lvl2
   FROM DataForUDF d
-  LEFT JOIN L2_BestMatch bm USING (
-    meter_category, meter_sub_category, meter_name, meter_region,
-    consumed_service, publisher_name, tag__deployment, plan_name,
-    unit_of_measure, pricing_model, term
-  )
+  LEFT JOIN L2_BestMatch bm ON bm.row_id = d.row_id
 ),
 
 -- L3 Classification
 L3_RuleMatches AS (
   SELECT
-    l2.meter_category, l2.meter_sub_category, l2.meter_name, l2.meter_region,
-    l2.consumed_service, l2.publisher_name, l2.tag__deployment, l2.plan_name,
-    l2.unit_of_measure, l2.pricing_model, l2.term,
+    l2.row_id,
     r.output_value AS matched_l3_value,
     ROW_NUMBER() OVER (
-      PARTITION BY
-        l2.meter_category, l2.meter_sub_category, l2.meter_name, l2.meter_region,
-        l2.consumed_service, l2.publisher_name, l2.tag__deployment, l2.plan_name,
-        l2.unit_of_measure, l2.pricing_model, l2.term
+      PARTITION BY l2.row_id
       ORDER BY r.priority
     ) as rn
   FROM L2_Classification l2
@@ -137,9 +123,7 @@ L3_RuleMatches AS (
 ),
 L3_BestMatch AS (
   SELECT
-    meter_category, meter_sub_category, meter_name, meter_region,
-    consumed_service, publisher_name, tag__deployment, plan_name,
-    unit_of_measure, pricing_model, term,
+    row_id,
     matched_l3_value
   FROM L3_RuleMatches WHERE rn = 1
 ),
@@ -153,11 +137,7 @@ L3_Classification AS (
       ELSE COALESCE(bm.matched_l3_value, l2.row_data.meter_category)
     END AS csp_product_lvl3
   FROM L2_Classification l2
-  LEFT JOIN L3_BestMatch bm USING (
-    meter_category, meter_sub_category, meter_name, meter_region,
-    consumed_service, publisher_name, tag__deployment, plan_name,
-    unit_of_measure, pricing_model, term
-  )
+  LEFT JOIN L3_BestMatch bm ON bm.row_id = l2.row_id
 )
 
 SELECT
