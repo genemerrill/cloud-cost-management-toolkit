@@ -18,7 +18,7 @@
 config {
     type: "incremental",  //TODO: make an MV for most customers?
     name: "project_daily_spend",
-    //tags: ["createViews"],
+    tags: ["updateAggregates"],
     description: "View used by anomaly pipeline for input to ARIMA.",
      bigquery: {
         partitionBy: "usage_start_date",
@@ -96,5 +96,3 @@ GROUP BY
   1,
   2,
   3
-
-

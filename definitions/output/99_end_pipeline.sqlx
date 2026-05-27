@@ -1,7 +1,9 @@
 config {
   type: "operations",
   dependencies: [
-    dataform.projectConfig.vars.daily_left_joined_table_name
+    dataform.projectConfig.vars.enable_labels_and_tags === "true"
+      ? dataform.projectConfig.vars.daily_left_joined_table_name
+      : dataform.projectConfig.vars.daily_summary_table_name
   ]
 }
 

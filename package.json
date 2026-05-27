@@ -1,0 +1,8 @@
+{
+  "name": "cloud-cost-management-toolkit",
+  "version": "1.0.0",
+  "description": "GCP Cloud Cost Management Toolkit Dataform pipeline package settings",
+  "dependencies": {
+    "@dataform/core": "3.0.26"
+  }
+}

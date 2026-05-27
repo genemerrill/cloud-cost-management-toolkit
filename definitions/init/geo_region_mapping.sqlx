@@ -1,0 +1,56 @@
+config {
+  type: "table",
+  tags: ["init"],
+  description: "GCP technical region to geographic country/state mapping optimized for Looker Studio spatial charts.",
+  columns: {
+    gcp_region: "GCP native region technical identifier (e.g. us-east1).",
+    geo_name: "Human readable localized country/state name.",
+    looker_studio_geo_type: "Field formatting classifier parsed by Looker Studio map visualization layers."
+  }
+}
+
+SELECT
+  gcp_region,
+  geo_name,
+  looker_studio_geo_type
+FROM UNNEST([
+  STRUCT<gcp_region STRING, geo_name STRING, looker_studio_geo_type STRING>
+  ('africa-south1', 'South Africa', 'Country'),
+  ('asia-east1', 'Taiwan', 'Country'),
+  ('asia-east2', 'Hong Kong', 'Country'),
+  ('asia-northeast1', 'Japan', 'Country'),
+  ('asia-northeast2', 'Japan', 'Country'),
+  ('asia-northeast3', 'South Korea', 'Country'),
+  ('asia-south1', 'India', 'Country'),
+  ('asia-south2', 'India', 'Country'),
+  ('asia-southeast1', 'Singapore', 'Country'),
+  ('asia-southeast2', 'Indonesia', 'Country'),
+  ('australia-southeast1', 'Australia', 'Country'),
+  ('australia-southeast2', 'Australia', 'Country'),
+  ('europe-central2', 'Poland', 'Country'),
+  ('europe-north1', 'Finland', 'Country'),
+  ('europe-southwest1', 'Spain', 'Country'),
+  ('europe-west1', 'Belgium', 'Country'),
+  ('europe-west2', 'United Kingdom', 'Country'),
+  ('europe-west3', 'Germany', 'Country'),
+  ('europe-west4', 'Netherlands', 'Country'),
+  ('europe-west6', 'Switzerland', 'Country'),
+  ('europe-west8', 'Italy', 'Country'),
+  ('europe-west9', 'France', 'Country'),
+  ('me-central1', 'Qatar', 'Country'),
+  ('me-central2', 'Saudi Arabia', 'Country'),
+  ('me-west1', 'Israel', 'Country'),
+  ('northamerica-northeast1', 'Canada', 'Country'),
+  ('northamerica-northeast2', 'Canada', 'Country'),
+  ('southamerica-east1', 'Brazil', 'Country'),
+  ('southamerica-west1', 'Chile', 'Country'),
+  ('us-central1', 'Iowa', 'Country subdivision (1st level)'),
+  ('us-east1', 'South Carolina', 'Country subdivision (1st level)'),
+  ('us-east4', 'Virginia', 'Country subdivision (1st level)'),
+  ('us-east5', 'Ohio', 'Country subdivision (1st level)'),
+  ('us-south1', 'Texas', 'Country subdivision (1st level)'),
+  ('us-west1', 'Oregon', 'Country subdivision (1st level)'),
+  ('us-west2', 'California', 'Country subdivision (1st level)'),
+  ('us-west3', 'Utah', 'Country subdivision (1st level)'),
+  ('us-west4', 'Nevada', 'Country subdivision (1st level)')
+])

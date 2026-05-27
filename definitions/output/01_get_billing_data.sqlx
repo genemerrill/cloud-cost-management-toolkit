@@ -29,75 +29,69 @@ config {
 }
 
 pre_operations {
+  -- State-free fallback: If log table max_source_date is missing/corrupted,
+  -- recover by scanning target metadata partition bounds, avoiding massive full raw tables scans
   DECLARE _filter_date DATE DEFAULT (
     ${when(incremental(),
-    `SELECT MAX(max_source_date) FROM ${ref(dataform.projectConfig.vars.log_table_name)} where process_end_time IS NOT NULL`,
-    `SELECT cast('${dataform.projectConfig.vars.default_start_date}' as date)`)}
+    `COALESCE(
+      (SELECT MAX(max_source_date) FROM ${ref(dataform.projectConfig.vars.log_table_name)} WHERE process_end_time IS NOT NULL),
+      (SELECT DATE(MAX(PARTITIONTIME)) FROM ${self()} WHERE usage_start_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)),
+      CAST('${dataform.projectConfig.vars.default_start_date}' AS DATE)
+     )`,
+    `CAST('${dataform.projectConfig.vars.default_start_date}' AS DATE)`)}
   );
 
--- TODO: determine latest full partition to use for max_source_date
+  DECLARE v_process_row_id INT64;
+  SET v_process_row_id = (
+    SELECT process_id FROM ${ref(dataform.projectConfig.vars.log_table_name)} WHERE process_end_time IS NULL
+  );
 
+  -- HIGH PERFORMANCE OPTIMIZATION: Extract raw cost delta ONCE into an optimized TEMP table.
+  -- Prevents scanning massive billing export tables twice.
+  CREATE OR REPLACE TEMP TABLE temp_billing_delta AS
+  SELECT
+    source_data.* ,
+    DATE(source_data.usage_start_time, '${dataform.projectConfig.vars.billing_source_timezone}') AS usage_start_date
+  FROM
+    ${ref(dataform.projectConfig.vars.source_view_name)} AS source_data
+  WHERE
+    source_data.PARTITIONTIME >= TIMESTAMP(_filter_date)
+    AND source_data.PARTITIONTIME < TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), DAY);
+
+  -- Compute transactionally accurate metadata off the tiny temp table in milliseconds with zero scan cost!
+  DECLARE v_records_added INT64;
+  DECLARE v_usage_dates_processed ARRAY<DATE>;
+  DECLARE v_max_processed_partition_date DATE;
+
+  SET (v_records_added, v_usage_dates_processed, v_max_processed_partition_date) = (
+    SELECT AS STRUCT
+      COUNT(1),
+      ARRAY_AGG(DISTINCT usage_start_date),
+      COALESCE(MAX(DATE(PARTITIONTIME)), _filter_date)
+    FROM temp_billing_delta
+  );
 }
 
--- Main query
+-- Main query - Natively inserts delta records from the TEMP table into the target table
 SELECT
-  source_data.* ,
-  DATE(source_data.usage_start_time, '${dataform.projectConfig.vars.billing_source_timezone}') AS usage_start_date
+  *
 FROM
-  ${ref(dataform.projectConfig.vars.source_view_name)} AS source_data
-WHERE
-  source_data.PARTITIONTIME >= TIMESTAMP(_filter_date)
-  AND source_data.PARTITIONTIME < TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), DAY)
+  temp_billing_delta
 
 post_operations {
   -- After the main query succeeds, update the log table with run metadata.
   BEGIN
-    DECLARE v_process_row_id INT64;
-    DECLARE v_run_metadata STRUCT<
-      records_added INT64,
-      usage_dates_processed ARRAY<DATE>,
-      max_processed_partition_date DATE
-    >;
-    DECLARE v_start_of_batch_date DATE;
-
-    -- Find the active process ID.
-    SET v_process_row_id = (
-      SELECT process_id FROM ${ref(dataform.projectConfig.vars.log_table_name)} WHERE process_end_time IS NULL
-    );
-
-    -- Determine the start date for the next batch window (the high-water mark).
-    SET v_start_of_batch_date = (
-      SELECT
-        ${when(incremental(), 
-          `(SELECT COALESCE(MAX(max_source_date), DATE('${dataform.projectConfig.vars.default_start_date}')) 
-            FROM ${ref(dataform.projectConfig.vars.log_table_name)} WHERE process_end_time IS NOT NULL)`,
-          `DATE('${dataform.projectConfig.vars.default_start_date}')`
-        )}
-    );
-
-    -- Gather metadata directly from the source data for this batch to avoid race conditions.
-    -- TODO: this is expensive, we could change to partition checks in I_S and @@row_count?
-    SET v_run_metadata = (
-      SELECT AS STRUCT
-        COUNT(1) as records_added,
-        ARRAY_AGG(DISTINCT DATE(usage_start_time, "${dataform.projectConfig.vars.billing_source_timezone}")) AS usage_dates_processed,
-        COALESCE(MAX(DATE(PARTITIONTIME)), v_start_of_batch_date) as max_processed_partition_date
-      FROM ${ref(dataform.projectConfig.vars.source_view_name)}
-      WHERE PARTITIONTIME > TIMESTAMP(v_start_of_batch_date)
-        --AND PARTITIONTIME < TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), DAY)
-    );
-
     -- Update the active log row with the correctly determined metadata.
     UPDATE ${ref(dataform.projectConfig.vars.log_table_name)}
     SET
-      records_added = v_run_metadata.records_added,
+      records_added = v_records_added,
       -- For incremental runs, store the array of dates (or an empty array if none).
       -- For full refresh runs, explicitly store NULL.
       usage_dates_processed = ${when(incremental(), 
-        `COALESCE(v_run_metadata.usage_dates_processed, [])`,
+        `COALESCE(v_usage_dates_processed, [])`,
         `NULL`
       )},
-      max_source_date = v_run_metadata.max_processed_partition_date,
+      max_source_date = v_max_processed_partition_date,
       process_msg = "Step 1/2 Complete: Successfully repartitioned billing data."
     WHERE
       process_id = v_process_row_id;

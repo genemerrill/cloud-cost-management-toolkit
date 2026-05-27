@@ -16,11 +16,9 @@
 
 -- This script builds the helper table for tags
 config {
-  //disabled: true, 
+  disabled: dataform.projectConfig.vars.enable_labels_and_tags !== "true", 
   type: "incremental",
   tags: ["updateTagsLabels"],
-  database: dataform.projectConfig.vars.gcp_project_id,
-  schema: dataform.projectConfig.vars.gcp_dataset_id,
   name: dataform.projectConfig.vars.daily_left_joined_table_name,
   bigquery: {
     partitionBy: "usage_start_date",
@@ -86,19 +84,20 @@ pre_operations {
 -- Main query
     SELECT
       base.*,
+      geo.geo_name,
+      geo.looker_studio_geo_type,
       labels.* EXCEPT (pk, usage_start_date),
       project_labels.* EXCEPT (pk, usage_start_date),
       system_labels.* EXCEPT (pk, usage_start_date),
       tags.* EXCEPT (pk, usage_start_date)
-      --,mapping.* EXCEPT (project_id, project_number) --TODO: Re-add mapping table
 
     FROM
       ${ref(dataform.projectConfig.vars.daily_summary_table_name)} AS base
+    LEFT JOIN ${ref("geo_region_mapping")} AS geo ON base.location_region = geo.gcp_region
     LEFT JOIN ${ref(dataform.projectConfig.vars.labels_table_name)}AS labels ON base.pk = labels.pk AND base.usage_start_date = labels.usage_start_date
     LEFT JOIN ${ref(dataform.projectConfig.vars.project_labels_table_name)} AS project_labels ON base.pk = project_labels.pk
     LEFT JOIN ${ref(dataform.projectConfig.vars.system_labels_table_name)} AS system_labels ON base.pk = system_labels.pk
     LEFT JOIN ${ref(dataform.projectConfig.vars.tags_table_name)} AS tags ON base.pk = tags.pk
-    --LEFT JOIN ${ref(dataform.projectConfig.vars.mapping_table_name)} AS mapping ON base.project_id = mapping.project_id
 
     WHERE
     ${when(incremental(),`base.usage_start_date IN UNNEST(v_usage_dates_processed)`,
@@ -145,7 +144,7 @@ post_operations {
           process_end_time = CURRENT_TIMESTAMP(),
           process_msg = @@error.message
         WHERE
-          process_id = (SELECT MAX(process_id) FROM `${dataform.projectConfig.vars.gcp_project_id}.${dataform.projectConfig.vars.gcp_dataset_id}.${dataform.projectConfig.vars.log_table_name}` WHERE process_end_time IS NULL);
+          process_id = (SELECT MAX(process_id) FROM ${ref(dataform.projectConfig.vars.log_table_name)} WHERE process_end_time IS NULL);
         
         RAISE USING MESSAGE = @@error.message;
     END;

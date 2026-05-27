@@ -119,3 +119,39 @@ COALESCE(SUM(
 A [scalar subquery](https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/subqueries#scalar_subquery_concepts) can be used right inside the select clause of another query so long as it only returns a single column and row. It is then subject to the same group by clause as the main query. This scalar subquery is particularly useful since it allows for the unnesting of the credits array without affecting the main query with that unnesting. Unnesting causes the one-to-many [fanout problem](https://discuss.google.dev/t/the-problem-of-sql-fanouts/119220), which can usually only be solved with a subquery. Note that the array\_to\_string query for labels also contains a scalar subquery.
 
 Technically, the project.ancestors array also has a known set, since the number of org and folder hierarchies are limited when only looking at one customer. However, since this solution was designed to easily be maintained across any number of customers (or organizations at a single customer), it was handled like the label arrays. In addition, all the information in the project.ancestors array is also contained in the project.ancestry\_numbers string, so in a future iteration of this solution the project.ancestors array will likely be removed from the daily summary altogether. To pivot the ancestors array in the same way that labels are handled, then that would indeed require handling them like the labels arrays.
+
+
+## GCP Product Hierarchy Network Location Tracking (L5 & L6)
+
+For clients managing large-scale multi-region activities, tracking the source and destination regions of data transit charges is critical for cost analysis and bandwidth architecture design. 
+
+The pipeline implements an automated regular expression-based extraction engine within the main GCP product hierarchy step (`definitions/output/02_build_prod_hierarchy.sqlx`) to parse physical locations from raw SKU transfer descriptions:
+
+### 1. Level 4 (Direction Gate)
+Level 4 acts as the direction indicator, capturing whether the record represents an inbound or outbound transfer:
+* Sourced via: `'Egress'` or `'Ingress'` (standardizing transfer signals like `Transfer Out`, `Egress`, `Transfer In`, `Ingress`).
+
+### 2. Level 5 (Source Location / From)
+Level 5 captures the physical **Source Location** (where the data transit originates):
+* **Rule Logic:** Dynamically targets the location string following the raw keyword `from` (accounting for dual-region `from ... to ...` structures or single-region fallbacks `from ... $`).
+* **Regex Engine:**
+  ```sql
+  COALESCE(
+    REGEXP_EXTRACT(cd.raw_sku_description, r'(?i)from\s+([a-zA-Z0-9\s\(\)/._-]+?)\s+to'),
+    REGEXP_EXTRACT(cd.raw_sku_description, r'(?i)from\s+([a-zA-Z0-9\s\(\)/._-]+)$')
+  )
+  ```
+
+### 3. Level 6 (Destination Location / To)
+Level 6 captures the physical **Destination Location** (where the data transit terminates):
+* **Rule Logic:** Dynamically targets the trailing location string following the raw keyword `to` in multi-region transfer paths.
+* **Regex Engine:**
+  ```sql
+  REGEXP_EXTRACT(cd.raw_sku_description, r'(?i)from\s+.*?\s+to\s+([a-zA-Z0-9\s\(\)/._-]+)')
+  ```
+
+### 4. Characteristics of the Location Parsers
+* **Case Insensitivity:** The regex engine leverages the case-insensitivity flag `(?i)` to ensure robust capturing across varied billing record logs.
+* **Permissive Character Set:** The regex supports international geography conventions, multi-word regions, and conditional region exclusion formats (e.g., matching `APAC (excluding Japan)` or `Americas (except Brazil)` cleanly).
+* **Format-Safe Output:** Outputs are wrapped with standard SQL `TRIM()` operations to prune blank characters, and safe fallback strings `''` to guarantee type uniformity in reporting databases.
+

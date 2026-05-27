@@ -15,11 +15,9 @@
 */
 -- This script builds the helper table for tags
 config {
-  //disabled: true,
+  disabled: dataform.projectConfig.vars.enable_labels_and_tags !== "true",
   type: "incremental",
   tags: ["updateTagsLabels"],
-  database: dataform.projectConfig.vars.gcp_project_id,
-  schema: dataform.projectConfig.vars.gcp_dataset_id,
   name: dataform.projectConfig.vars.tags_table_name,
   bigquery: {
     partitionBy: "usage_start_date",

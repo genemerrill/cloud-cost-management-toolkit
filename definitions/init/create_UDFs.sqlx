@@ -1,0 +1,126 @@
+/*
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+*/
+
+CREATE OR REPLACE FUNCTION ${dataform.projectConfig.vars.udfs_dataset}.EvaluateRule(
+  data STRUCT<
+    meter_category STRING, meter_sub_category STRING, meter_name STRING, meter_region STRING,
+    consumed_service STRING, publisher_name STRING, tag__deployment STRING, plan_name STRING,
+    unit_of_measure STRING, publisher_type STRING, pricing_model STRING, term STRING, is_commitment INT64
+  >,
+  conditions_json STRING)
+RETURNS BOOL
+LANGUAGE js AS """
+  function getRawValue(data, field) {
+    if (!data || !field) return undefined;
+    switch (field.toLowerCase()) {
+      case 'meter_category': return data.meter_category;
+      case 'meter_sub_category': return data.meter_sub_category;
+      case 'meter_name': return data.meter_name;
+      case 'meter_region': return data.meter_region;
+      case 'consumed_service': return data.consumed_service;
+      case 'publisher_name': return data.publisher_name;
+      case 'tag__deployment': return data.tag__deployment;
+      case 'plan_name': return data.plan_name;
+      case 'unit_of_measure': return data.unit_of_measure;
+      case 'publisher_type': return data.publisher_type;
+      case 'pricing_model': return data.pricing_model;
+      case 'term': return data.term;
+      case 'is_commitment': return data.is_commitment;
+      default: return undefined;
+    }
+  }
+
+  function evaluateCondition(clause, data) {
+    const field = clause.field;
+    const op = clause.op ? clause.op.toUpperCase() : '';
+    const values = clause.values;
+
+    if (op === 'ALWAYS_TRUE') return true;
+
+    const rawValue = getRawValue(data, field);
+
+    if (rawValue === null || rawValue === undefined) {
+       if (op === 'IS_NULL') return true;
+       if (op === 'IS_NOT_NULL') return false;
+       return false; // Other ops on NULL/undefined are false
+    }
+
+    let actualValue = typeof rawValue === 'string' ? rawValue.toUpperCase() : rawValue;
+    const upperValues = Array.isArray(values) ? values.map(v => typeof v === 'string' ? v.toUpperCase() : v) : [];
+
+    switch (op) {
+      case 'IN':
+        return upperValues.includes(actualValue);
+      case 'NOT IN':
+        return !upperValues.includes(actualValue);
+      case '=':
+        return actualValue === upperValues[0];
+      case '<>':
+      case '!=':
+        return actualValue !== upperValues[0];
+      case 'LIKE':
+        return upperValues.some(val => typeof actualValue === 'string' && actualValue.includes(val));
+      case 'NOT LIKE':
+        return !upperValues.some(val => typeof actualValue === 'string' && actualValue.includes(val));
+      case 'REGEX_CONTAINS':
+        return upperValues.some(val => {
+          try {
+            const regex = new RegExp(val, 'i');
+            return typeof rawValue === 'string' && regex.test(rawValue);
+          } catch (e) { return false; }
+        });
+      case 'NOT REGEX_CONTAINS':
+         return !upperValues.some(val => {
+          try {
+            const regex = new RegExp(val, 'i');
+            return typeof rawValue === 'string' && regex.test(rawValue);
+          } catch (e) { return false; }
+        });
+      case 'IS_TRUE':
+        return rawValue === 1 || rawValue === true;
+      case 'IS_FALSE':
+        return rawValue === 0 || rawValue === false;
+      case 'IS_NULL':
+         return false; // Handled above
+      case 'IS_NOT_NULL':
+         return true; // Handled above
+      default:
+        return false;
+    }
+  }
+
+  function evaluateClause(clause, data) {
+    if (!clause || !clause.op) return false; // Basic validation
+    const op = clause.op.toUpperCase();
+    if (op === 'AND') {
+      return Array.isArray(clause.clauses) && clause.clauses.every(c => evaluateClause(c, data));
+    } else if (op === 'OR') {
+      return Array.isArray(clause.clauses) && clause.clauses.some(c => evaluateClause(c, data));
+    } else if (op === 'NOT') {
+      return Array.isArray(clause.clauses) && clause.clauses.length > 0 && !evaluateClause(clause.clauses[0], data);
+    } else {
+      return evaluateCondition(clause, data);
+    }
+  }
+
+  try {
+    if (!conditions_json) return false;
+    const conditions = JSON.parse(conditions_json);
+    return evaluateClause(conditions, data);
+  } catch (e) {
+    return false; // Error in JSON or evaluation
+  }
+""";
