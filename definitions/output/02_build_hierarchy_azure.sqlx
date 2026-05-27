@@ -1,0 +1,176 @@
+/*
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+*/
+
+config {
+  //disabled: true,
+  type: "table",
+  name: "azure_product_categories",
+  description: "Example of generating a customer-specific Azure product hierarchy"
+}
+
+-- Assumes UDF EvaluateRule is defined in init/create_UDFs.sqlx
+-- Assumes azure_product_hierarchy_rules table is populated
+
+WITH BillingDataWithSKU AS (
+  SELECT DISTINCT
+        MeterCategory as meter_category,
+        COALESCE(MeterSubCategory, '') as meter_sub_category,
+        MeterName as meter_name,
+        COALESCE(MeterRegion, '') as meter_region,
+        upper(ConsumedService) as consumed_service,
+        UnitOfMeasure as unit_of_measure,
+        PublisherType as publisher_type,
+        CASE WHEN UPPER(PublisherType) = 'MARKETPLACE' THEN COALESCE(PublisherName, '') ELSE '' END as publisher_name,
+        CASE WHEN UPPER(PublisherType) = 'MARKETPLACE' THEN COALESCE(PlanName, '') ELSE '' END as plan_name,
+        ChargeType as charge_type,
+        PricingModel as pricing_model,
+        CAST(Term AS STRING) as term,
+        COALESCE(REGEXP_EXTRACT(Tags, r'(?i)"deployment"\s*:\s*"([^"]*)"'), '') as tag__deployment
+    FROM `dinhgcplab.Azure.sample_cost`
+    -- UNION ALL ... (removed for brevity, assuming same source)
+),
+
+AggregatedSKUs AS (
+    SELECT
+        s.meter_category,
+        s.meter_sub_category,
+        s.meter_name,
+        s.meter_region,
+        s.consumed_service,
+        s.publisher_name,
+        s.tag__deployment,
+        s.plan_name,
+        s.unit_of_measure,
+        s.pricing_model,
+        s.term,
+        MAX(s.publisher_type) as publisher_type,
+        MAX(CASE WHEN s.charge_type IN ('Purchase', 'Refund', 'UnusedReservation', 'UnusedSavingsPlan') THEN 1 ELSE 0 END) as is_commitment
+    FROM BillingDataWithSKU s
+    GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+),
+
+DataForUDF AS (
+  SELECT STRUCT(
+    meter_category, meter_sub_category, meter_name, meter_region,
+    consumed_service, publisher_name, tag__deployment, plan_name,
+    unit_of_measure, publisher_type, pricing_model, term, is_commitment
+  ) AS row_data, *
+  FROM AggregatedSKUs
+),
+
+-- L2 Classification
+L2_RuleMatches AS (
+  SELECT
+    d.meter_category, d.meter_sub_category, d.meter_name, d.meter_region,
+    d.consumed_service, d.publisher_name, d.tag__deployment, d.plan_name,
+    d.unit_of_measure, d.pricing_model, d.term,
+    r.output_value AS matched_l2_value,
+    ROW_NUMBER() OVER (
+      PARTITION BY
+        d.meter_category, d.meter_sub_category, d.meter_name, d.meter_region,
+        d.consumed_service, d.publisher_name, d.tag__deployment, d.plan_name,
+        d.unit_of_measure, d.pricing_model, d.term
+      ORDER BY r.priority
+    ) as rn
+  FROM DataForUDF d
+  JOIN ${ref("azure_product_hierarchy_rules")} r ON r.hier_level = 2
+  WHERE ${dataform.projectConfig.vars.udfs_dataset}.EvaluateRule(d.row_data, r.conditions_json)
+),
+L2_BestMatch AS (
+  SELECT
+    meter_category, meter_sub_category, meter_name, meter_region,
+    consumed_service, publisher_name, tag__deployment, plan_name,
+    unit_of_measure, pricing_model, term,
+    matched_l2_value
+  FROM L2_RuleMatches WHERE rn = 1
+),
+L2_Classification AS (
+  SELECT
+    d.*,
+    'All' AS csp_product_lvl1,
+    COALESCE(bm.matched_l2_value, 'Others') AS csp_product_lvl2
+  FROM DataForUDF d
+  LEFT JOIN L2_BestMatch bm USING (
+    meter_category, meter_sub_category, meter_name, meter_region,
+    consumed_service, publisher_name, tag__deployment, plan_name,
+    unit_of_measure, pricing_model, term
+  )
+),
+
+-- L3 Classification
+L3_RuleMatches AS (
+  SELECT
+    l2.meter_category, l2.meter_sub_category, l2.meter_name, l2.meter_region,
+    l2.consumed_service, l2.publisher_name, l2.tag__deployment, l2.plan_name,
+    l2.unit_of_measure, l2.pricing_model, l2.term,
+    r.output_value AS matched_l3_value,
+    ROW_NUMBER() OVER (
+      PARTITION BY
+        l2.meter_category, l2.meter_sub_category, l2.meter_name, l2.meter_region,
+        l2.consumed_service, l2.publisher_name, l2.tag__deployment, l2.plan_name,
+        l2.unit_of_measure, l2.pricing_model, l2.term
+      ORDER BY r.priority
+    ) as rn
+  FROM L2_Classification l2
+  JOIN ${ref("azure_product_hierarchy_rules")} r
+    ON r.hier_level = 3 AND r.parent_l2 = l2.csp_product_lvl2
+  WHERE l2.csp_product_lvl2 NOT IN ('Marketplace', 'Serverless', 'Security')
+    AND ${dataform.projectConfig.vars.udfs_dataset}.EvaluateRule(l2.row_data, r.conditions_json)
+),
+L3_BestMatch AS (
+  SELECT
+    meter_category, meter_sub_category, meter_name, meter_region,
+    consumed_service, publisher_name, tag__deployment, plan_name,
+    unit_of_measure, pricing_model, term,
+    matched_l3_value
+  FROM L3_RuleMatches WHERE rn = 1
+),
+L3_Classification AS (
+  SELECT
+    l2.*,
+    CASE
+      WHEN l2.csp_product_lvl2 = 'Marketplace' THEN
+          CASE WHEN COALESCE(l2.row_data.publisher_name, '') != '' THEN l2.row_data.publisher_name ELSE l2.row_data.meter_category END
+      WHEN l2.csp_product_lvl2 IN ('Serverless', 'Security') THEN l2.row_data.meter_category
+      ELSE COALESCE(bm.matched_l3_value, l2.row_data.meter_category)
+    END AS csp_product_lvl3
+  FROM L2_Classification l2
+  LEFT JOIN L3_BestMatch bm USING (
+    meter_category, meter_sub_category, meter_name, meter_region,
+    consumed_service, publisher_name, tag__deployment, plan_name,
+    unit_of_measure, pricing_model, term
+  )
+)
+
+-- Final SELECT statement for the example
+SELECT
+  row_data.meter_category,
+  row_data.meter_sub_category,
+  row_data.meter_name,
+  row_data.meter_region,
+  row_data.consumed_service,
+  row_data.publisher_name,
+  row_data.tag__deployment,
+  row_data.unit_of_measure,
+  row_data.pricing_model,
+  row_data.term,
+  row_data.plan_name,
+  row_data.publisher_type,
+  csp_product_lvl1,
+  csp_product_lvl2,
+  csp_product_lvl3
+  -- ... Add L4 to L8 columns once the CTEs are built
+FROM L3_Classification
