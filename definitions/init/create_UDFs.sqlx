@@ -121,6 +121,6 @@ LANGUAGE js AS """
     const conditions = JSON.parse(conditions_json);
     return evaluateClause(conditions, data);
   } catch (e) {
-    throw new Error("JS_ERROR: " + e.toString() + " | Stack: " + e.stack + " | JSON: " + conditions_json);
+    return false; // Error in JSON or evaluation
   }
 """;
