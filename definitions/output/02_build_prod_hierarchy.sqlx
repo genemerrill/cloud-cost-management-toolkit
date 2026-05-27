@@ -239,8 +239,8 @@ SELECT
       END
     WHEN 'Networking' THEN -- Section 9: Direction or variant
       CASE
-        WHEN cd.raw_sku_description LIKE '%Transfer Out%' THEN 'Egress'
-        WHEN cd.raw_sku_description LIKE '%Transfer In%' THEN 'Ingress'
+        WHEN cd.raw_sku_description LIKE '%Transfer Out%' OR cd.raw_sku_description LIKE '%Egress%' THEN 'Egress'
+        WHEN cd.raw_sku_description LIKE '%Transfer In%' OR cd.raw_sku_description LIKE '%Ingress%' THEN 'Ingress'
         WHEN cd.raw_sku_description LIKE '%Inter Region%' THEN 'Inter-Region'
         ELSE ''
       END
@@ -293,11 +293,11 @@ SELECT
             ELSE ''
         END
     WHEN 'Databases' THEN '' -- Section 8: Instance category or tier
-    -- WHEN 'Networking' THEN -- TODO: Section 9
-    --   CASE
-    --       WHEN cd.raw_sku_description LIKE '%from%' THEN 'Capacity'
-    --       ELSE ''
-    --     END
+    WHEN 'Networking' THEN
+      COALESCE(TRIM(COALESCE(
+        REGEXP_EXTRACT(cd.raw_sku_description, r'(?i)from\s+([a-zA-Z0-9\s\(\)/._-]+?)\s+to'),
+        REGEXP_EXTRACT(cd.raw_sku_description, r'(?i)from\s+([a-zA-Z0-9\s\(\)/._-]+)$')
+      )), '')
     WHEN 'Block Storage' THEN -- Section 10
       CASE
           WHEN cd.raw_sku_description LIKE '%Capacity%' THEN 'Capacity'
@@ -344,6 +344,8 @@ SELECT
           ELSE ''
         END
     WHEN 'Databases' THEN '' -- Section 8: Instance family
+    WHEN 'Networking' THEN
+      COALESCE(TRIM(REGEXP_EXTRACT(cd.raw_sku_description, r'(?i)from\s+.*?\s+to\s+([a-zA-Z0-9\s\(\)/._-]+)')), '')
     ELSE ''
   END AS csp_product_lvl6,
 
